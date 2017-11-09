@@ -5,6 +5,7 @@ import matplotlib.image as mpimg
 from os import listdir
 from moviepy.editor import VideoFileClip
 import random
+import copy
 
 class Line():
 		def __init__(self):
@@ -46,6 +47,7 @@ class Line():
 			
 			self.best_fit = np.polyfit(y, np.array(self.recent_xfitted).flatten(),2)
 			self.bestx = self.best_fit[0]*ploty**2 + self.best_fit[1]*ploty + self.best_fit[2]
+			self.line_base_pos = binary_warped.shape[0] / 2 - self.bestx[0]
 
 		def best_fit(self,ploty):
 			y = np.copy(ploty)
@@ -97,11 +99,11 @@ def perspective_transform(img):
     img_size = (gray.shape[1], gray.shape[0])
 
     # For source points I'm grabbing the outer four detected corners
-    src = np.float32([[253, 680], [604,443], [670,443], [1051, 680]])
+    src = np.float32([[329, 684], [472,558], [892,558], [1122, 684]])
     # For destination points, I'm arbitrarily choosing some points to be
     # a nice fit for displaying our warped result 
     # again, not exact, but close enough for our purposes
-    dst = np.float32([[253, 680], [253, 0], [1051, 0], [1051, 680]])
+    dst = np.float32([[329, 684], [320, 558], [1122, 558], [1122, 684]])
     # Given src and dst points, calculate the perspective transform matrix
     M = cv2.getPerspectiveTransform(src, dst)
     Minv = cv2.getPerspectiveTransform(dst, src)
@@ -160,6 +162,13 @@ def pipeline(img, s_thresh=(70, 255), sx_thresh=(40, 255)):
      
     s_binary = np.zeros_like(s_channel)
     s_binary[(s_channel >= s_thresh[0])] = 1
+
+    if i % 4 == 0:
+	    cv2.imwrite('./outputs/' + str(i) + 'l.jpg', l_channel * 255)
+	    cv2.imwrite('./outputs/' + str(i) + 's.jpg', s * 255)
+	    cv2.imwrite('./outputs/' + str(i) + 'sx.jpg', sxbinary * 255)
+	    cv2.imwrite('./outputs/' + str(i) + 'output.jpg', img)
+	    
     color_binary = np.dstack(( l_channel, sxbinary, s)) * 255
     color_binary = color_binary[:,:,0] * 0.33 + color_binary[:,:,1] * 0.33 + color_binary[:,:,2] * 0.33
     return color_binary
@@ -168,12 +177,12 @@ def sanity_check(right_line, left_line):
 	#Set the top and bottom distances between the left and right lines and check if the lines are approxiametly parallel
 	top_distance = right_line[0] - left_line[0]
 	bottom_distance = right_line[right_line.shape[0]-1] - left_line[right_line.shape[0]-1]
-	if np.abs(top_distance - bottom_distance) > 100 or np.abs(bottom_distance - 800) > 100:
+	if np.abs(top_distance - bottom_distance) > 500 or np.abs(bottom_distance - 800) > 350 or np.abs(top_distance - 800) > 350:
 		return False
 	return True
 
 def curvature_sanity_check(left,right):
-	if np.abs(left - right) > 200:
+	if np.abs(left - right) > 10000:
 		return False
 	return True
 
@@ -282,11 +291,11 @@ def process_image(image):
 		out_img[nonzeroy[left_lane_inds], nonzerox[left_lane_inds]] = [255, 0, 0]
 		out_img[nonzeroy[right_lane_inds], nonzerox[right_lane_inds]] = [0, 0, 255]
 		if sanity_check(Right.bestx,Left.bestx) == False:
-			Right = last_Right
-			Left = last_Left
+			Right = copy.deepcopy(last_Right)
+			Left = copy.deepcopy(last_Left)
 	else:
-		Right = last_Right
-		Left = last_Left
+		Right = copy.deepcopy(last_Right)
+		Left = copy.deepcopy(last_Left)
 
 	if Right.bestx is None:
 		return binary_warped 
@@ -303,13 +312,13 @@ def process_image(image):
 	# Calculate the new radii of curvature
 	left_curverad = ((1 + (2*left_fit_cr[0]*y_eval*ym_per_pix + left_fit_cr[1])**2)**1.5) / np.absolute(2*left_fit_cr[0])
 	right_curverad = ((1 + (2*right_fit_cr[0]*y_eval*ym_per_pix + right_fit_cr[1])**2)**1.5) / np.absolute(2*right_fit_cr[0])
-	Left.curvature = left_curverad
-	Right.curvature = right_curverad
+	Left.radius_of_curvature = left_curverad
+	Right.radius_of_curvature = right_curverad
 	# Now our radius of curvature is in meters
 	print(left_curverad, 'm', right_curverad, 'm')
 	if curvature_sanity_check(left_curverad,right_curverad) == False:
-		Right = last_Right
-		Left = last_Left
+		Right = copy.deepcopy(last_Right)
+		Left = copy.deepcopy(last_Left)
 		error+=1
 	# Create an image to draw the lines on
 	warp_zero = np.zeros_like(binary_warped).astype(np.uint8)
@@ -327,8 +336,13 @@ def process_image(image):
 	# Combine the result with the original image
 	#dst = cv2.cvtColor(dst,cv2.COLOR_BGR2RGB)
 	result = cv2.addWeighted(dst, 1, newwarp, 0.3, 0)
-	last_Right = Right
-	last_Left = Left
+	last_Right = copy.deepcopy(Right)
+	last_Left = copy.deepcopy(Left)
+	cv2.putText(result,'Radius of Curvature '+str(round((left_curverad+right_curverad)/2,2))+"(m)",(20,80), cv2.FONT_HERSHEY_SIMPLEX, 1,(255,255,255),2,cv2.LINE_AA)
+	if Left.line_base_pos is None:
+		cv2.putText(result,'Vehicle is 0'+"m of center",(20,180), cv2.FONT_HERSHEY_SIMPLEX, 1,(255,255,255),2,cv2.LINE_AA)
+	else:
+		cv2.putText(result,'Vehicle is '+str(round(Left.line_base_pos*xm_per_pix,2))+"m of center",(20,180), cv2.FONT_HERSHEY_SIMPLEX, 1,(255,255,255),2,cv2.LINE_AA)
 	return result
 
 
