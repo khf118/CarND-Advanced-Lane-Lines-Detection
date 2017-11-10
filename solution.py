@@ -47,7 +47,7 @@ class Line():
 			
 			self.best_fit = np.polyfit(y, np.array(self.recent_xfitted).flatten(),2)
 			self.bestx = self.best_fit[0]*ploty**2 + self.best_fit[1]*ploty + self.best_fit[2]
-			self.line_base_pos = binary_warped.shape[0] / 2 - self.bestx[0]
+			#self.line_base_pos = binary_warped.shape[0] / 2 - self.bestx[0]
 
 		def best_fit(self,ploty):
 			y = np.copy(ploty)
@@ -137,16 +137,20 @@ def pipeline(img, s_thresh=(70, 255), sx_thresh=(40, 255)):
     l_channel = hls[:,:,1]
     s_channel = hls[:,:,2]
     h_channel = hls[:,:,0]
-    h_channel[(h_channel < 17)] = 0
+    h_channel[(h_channel < 18)] = 0
     h_channel[(h_channel > 20)] = 0
+    h_channel[:,640:] = 0
     image = hls
     hls[:,:,1] = cv2.equalizeHist(hls[:,:,1].astype(np.uint8))
     hls[:,:,2] = cv2.equalizeHist(hls[:,:,2].astype(np.uint8))
 
     l_channel = np.copy(hls[:,:,1])
     s = np.copy(hls[:,:,2])
-    s[(s<=250)] = 0
-    s[(s>250)] = 1
+    s[(s<=200)] = 0
+    s[(s>200)] = 1
+    dark = np.copy(l_channel)
+    dark[dark<=50] = 0
+    dark[dark>50] = 1
     l_channel_aux = np.copy(l_channel)
     l_channel_aux[(l_channel_aux<=250)] = 0
     l_channel_aux[(l_channel_aux>250)] = 1
@@ -159,17 +163,18 @@ def pipeline(img, s_thresh=(70, 255), sx_thresh=(40, 255)):
     
     sxbinary = np.zeros_like(scaled_sobel)
     sxbinary[(scaled_sobel >= sx_thresh[0]) & (scaled_sobel <= sx_thresh[1])] = 1
-     
+    sxbinary[:,500:700] = 0
     s_binary = np.zeros_like(s_channel)
     s_binary[(s_channel >= s_thresh[0])] = 1
 
-    if i % 4 == 0:
-	    cv2.imwrite('./outputs/' + str(i) + 'l.jpg', l_channel * 255)
-	    cv2.imwrite('./outputs/' + str(i) + 's.jpg', s * 255)
-	    cv2.imwrite('./outputs/' + str(i) + 'sx.jpg', sxbinary * 255)
-	    cv2.imwrite('./outputs/' + str(i) + 'output.jpg', img)
+    #cv2.imwrite('./outputs/' + str(i) + 'd.jpg', dark * 255)
+    #cv2.imwrite('./outputs/' + str(i) + 'l.jpg', l_channel_aux * 255)
+    #cv2.imwrite('./outputs/' + str(i) + 's.jpg', s * 255)
+    #cv2.imwrite('./outputs/' + str(i) + 'h.jpg', h_channel * 255)
+    #cv2.imwrite('./outputs/' + str(i) + 'sx.jpg', sxbinary * 255)
+    #cv2.imwrite('./outputs/' + str(i) + 'output.jpg', img)
 	    
-    color_binary = np.dstack(( l_channel, sxbinary, s)) * 255
+    color_binary = np.dstack(( l_channel, sxbinary, h_channel)) * 255
     color_binary = color_binary[:,:,0] * 0.33 + color_binary[:,:,1] * 0.33 + color_binary[:,:,2] * 0.33
     return color_binary
 
@@ -213,7 +218,8 @@ def process_image(image):
 
 	binary_warped = binary
 	# histogram of the bottom half of the image
-	histogram = np.sum(binary_warped[binary_warped.shape[0]//2:,:], axis=0)
+	#histogram = np.sum(binary_warped[binary_warped.shape[0]//2:,:], axis=0)
+	histogram = np.sum(binary_warped, axis=0)
 	# output image to draw on and  visualize the result
 	out_img = np.dstack((binary_warped, binary_warped, binary_warped))*255
 	# Find the peak of the left and right halves of the histogram
@@ -315,7 +321,7 @@ def process_image(image):
 	Left.radius_of_curvature = left_curverad
 	Right.radius_of_curvature = right_curverad
 	# Now our radius of curvature is in meters
-	print(left_curverad, 'm', right_curverad, 'm')
+	#print(left_curverad, 'm', right_curverad, 'm')
 	if curvature_sanity_check(left_curverad,right_curverad) == False:
 		Right = copy.deepcopy(last_Right)
 		Left = copy.deepcopy(last_Left)
@@ -339,16 +345,15 @@ def process_image(image):
 	last_Right = copy.deepcopy(Right)
 	last_Left = copy.deepcopy(Left)
 	cv2.putText(result,'Radius of Curvature '+str(round((left_curverad+right_curverad)/2,2))+"(m)",(20,80), cv2.FONT_HERSHEY_SIMPLEX, 1,(255,255,255),2,cv2.LINE_AA)
-	if Left.line_base_pos is None:
-		cv2.putText(result,'Vehicle is 0'+"m of center",(20,180), cv2.FONT_HERSHEY_SIMPLEX, 1,(255,255,255),2,cv2.LINE_AA)
-	else:
-		cv2.putText(result,'Vehicle is '+str(round(Left.line_base_pos*xm_per_pix,2))+"m of center",(20,180), cv2.FONT_HERSHEY_SIMPLEX, 1,(255,255,255),2,cv2.LINE_AA)
+	
+	pos = color_warp.shape[0] / 2 - ((Right.bestx[color_warp.shape[0]-1] - Left.bestx[color_warp.shape[0]-1]) / 2) 
+	cv2.putText(result,'Vehicle is '+str(round(pos,2))+"m of center",(20,180), cv2.FONT_HERSHEY_SIMPLEX, 1,(255,255,255),2,cv2.LINE_AA)
 	return result
 
 
 clip1 = VideoFileClip("project_video.mp4")
 white_clip = clip1.fl_image(process_image) #NOTE: this function expects color images!!
-white_clip.write_videofile("project_video_output3.mp4", audio=False)
+white_clip.write_videofile("project_video_output.mp4", audio=False)
 
 print(error)
 #img = cv2.imread('./test_images/straight_lines1.jpg')
